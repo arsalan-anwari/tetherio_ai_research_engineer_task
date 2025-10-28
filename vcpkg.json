@@ -1,0 +1,17 @@
+{
+  "name": "tetherio-ai-research-engineer-task",
+  "version": "1.0.0",
+  "dependencies": [
+    "fmt"
+  ],
+  "features": {
+    "win32": {
+      "description": "Windows desktop x64 | x86",
+      "dependencies": [
+        "vulkan",
+        { "name": "ggml", "features": ["vulkan"] },
+        "llama-cpp"
+      ]
+    }
+  }
+}
