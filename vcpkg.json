@@ -9,6 +9,7 @@
       "description": "Windows desktop x64 | x86",
       "dependencies": [
         "vulkan",
+        "shaderc",
         { "name": "ggml", "features": ["vulkan"] },
         "llama-cpp"
       ]

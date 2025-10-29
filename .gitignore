@@ -41,3 +41,7 @@
 *.dwo
 
 build/
+
+.venv/
+
+res/models/
