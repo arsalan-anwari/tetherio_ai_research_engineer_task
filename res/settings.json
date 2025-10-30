@@ -1,0 +1,4 @@
+{
+    "kernel_type": "vulkan_compute_shader",
+    "kernel_format_out": "spirv"
+}

@@ -1,0 +1,9 @@
+{
+    "compute": [
+        {
+            "name": "binmatmul",
+            "format": "glsl",
+            "file": "binmatmul.comp.glsl" 
+        }
+    ]
+}

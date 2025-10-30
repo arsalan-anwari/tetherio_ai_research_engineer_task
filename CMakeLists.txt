@@ -3,7 +3,9 @@ cmake_minimum_required(VERSION 3.25.0)
 project(tether_io_ai_research_task VERSION 0.1.0 LANGUAGES CXX)
 
 # Define all available fetaures and taregets
-option(TARGET_WIN32 "Windows desktop x64 | x86" OFF)
+option(TARGET_VULKAN_NATIVE "Windows desktop with Vulkan backend" OFF)
+option(TARGET_LLAMA_VULKAN "Windows desktop with llama backend using Vulkan driver" OFF)
+add_compile_definitions(RESOURCE_DIR="${RESOURCE_DIR}")
 
 # Search which target is selected
 include(cmake/FindTarget.cmake)

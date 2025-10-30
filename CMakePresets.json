@@ -4,7 +4,7 @@
 
   "configurePresets": [
     {
-      "name": "default",
+      "name": "build_settings",
       "hidden": true,
       "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
@@ -13,43 +13,48 @@
         "CMAKE_CXX_STANDARD": "23",
         "CMAKE_CXX_EXTENSIONS": "OFF",
         "CMAKE_CXX_STANDARD_REQUIRED": "ON",
-        "GGML_VULKAN": "ON"
+        "RESOURCE_DIR": "${sourceDir}/res"
       }
     },
     {
       "name": "windows-x64",
-      "inherits": "default",
+      "inherits": "build_settings",
       "generator": "Visual Studio 17 2022",
       "hidden": true,
       "cacheVariables": {
         "VCPKG_TARGET_TRIPLET": "x64-windows", 
-        "CMAKE_CONFIGURATION_TYPES": "Debug;Release"
+        "CMAKE_CONFIGURATION_TYPES": "Release"
       }
     },
     {
-      "name": "windows-x64-release",
+      "name": "windows-x64-vulkan",
       "inherits": "windows-x64",
       "cacheVariables": {
-        "VCPKG_MANIFEST_FEATURES": "win32"
+        "VCPKG_MANIFEST_FEATURES": "${presetName}"
       }
     },
     {
-      "name": "windows-x64-debug",
+      "name": "windows-x64-llama-vulkan",
       "inherits": "windows-x64",
-      "cacheVariables": { }
+      "cacheVariables": {
+        "VCPKG_MANIFEST_FEATURES": "${presetName}",
+        "GGML_VULKAN": "ON"
+      }
     }
   ],
 
   "buildPresets": [
     {
-      "name": "windows-x64-release",
-      "configurePreset": "windows-x64-release",
+      "name": "windows-x64-vulkan",
+      "configurePreset": "windows-x64-vulkan",
       "configuration": "Release"
     },
     {
-      "name": "windows-x64-debug",
-      "configurePreset": "windows-x64-debug",
-      "configuration": "Debug"
+      "name": "windows-x64-llama-vulkan",
+      "configurePreset": "windows-x64-llama-vulkan",
+      "configuration": "Release"
     }
   ]
+
+
 }
