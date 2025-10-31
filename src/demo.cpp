@@ -246,6 +246,8 @@ int main(){
     auto spv = compileGLSLtoSPV(kShaderGLSL, shaderc_compute_shader);
     createCompute(vk, spv);
 
+
+
     // Buffers: A_bits, B_bits, C_out
     Buf bufA, bufB, bufC;
     VkDeviceSize szA = VkDeviceSize(A_bits.size()*sizeof(uint32_t));
@@ -289,7 +291,8 @@ int main(){
 
     vkUpdateDescriptorSets(vk.dev, 3, writes, 0, nullptr);
 
-    // Command buffer and dispatch
+
+    // Command buffer and dispatch for kernel
     VkCommandBufferAllocateInfo cbai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO}; cbai.commandPool=vk.cpool; cbai.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY; cbai.commandBufferCount=1;
     VkCommandBuffer cmd; vkAllocateCommandBuffers(vk.dev, &cbai, &cmd);
     VkCommandBufferBeginInfo cbbi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO}; vkBeginCommandBuffer(cmd, &cbbi);
@@ -306,8 +309,15 @@ int main(){
     VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO}; si.commandBufferCount=1; si.pCommandBuffers=&cmd;
     VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO}; VkFence fence; vkCreateFence(vk.dev, &fci, nullptr, &fence);
     vkQueueSubmit(vk.queue, 1, &si, fence);
+    
     vkWaitForFences(vk.dev, 1, &fence, VK_TRUE, 1000000000ull);
     vkDestroyFence(vk.dev, fence, nullptr);
+
+
+
+
+
+
 
     // Read back C
     std::vector<int> C_gpu(size_t(M)*N);

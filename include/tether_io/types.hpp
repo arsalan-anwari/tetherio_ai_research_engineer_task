@@ -34,6 +34,12 @@ struct vec2 { T x; T y; };
 template<std::integral T>
 struct vec3 { T x; T y; T z; };
 
+template<std::integral T>
+struct vec4 { T x; T y; T z; T w; };
+
+template<std::integral T>
+struct api_version { T version; T major; T minor; T patch; };
+
 // Device Context Types
 enum class device_driver : u8 { vulkan_native, ggml_vulkan, cuda_native, opencl_native };
 enum class device_select : u8 { first_available, first_compute_capable, discrete, integrated };
@@ -45,7 +51,7 @@ struct device_driver_impl;
 template<device_driver D>
 struct device_buffer;
 
-enum class alloc_method { default, custom };
+enum class alloc_method { base, custom };
 enum class upload_method { sync, async };
 enum class download_method { sync, async };
 
@@ -68,8 +74,6 @@ struct kernel_config {
 template<device_driver D>
 struct kernel;
 
-enum class
-
 // Configuration setting for whole application
 struct application_config {
     std::filesystem::path resource_dir;
@@ -88,10 +92,14 @@ enum class file_error : u8 {
 };
 
 enum class device_error : u8 {
-    init_failed, 
+    init_failed,
+    could_not_create_instance,
+    no_available_devices, 
+    could_not_create_selected_device,
     not_available, 
     unexpected_crash, 
     alloc_failed, 
+    could_not_create_buffer,
     upload_failed, 
     download_failed,
     launch_failed
