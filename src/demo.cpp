@@ -221,7 +221,7 @@ int main(){
 
     // ===== Vulkan init (instance, device, queue) =====
     VK vk{};
-    VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO}; app.apiVersion = VK_API_VERSION_1_1; app.pApplicationName = "binmatmul";
+    VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO}; app.apiVersion = VK_version_1_1; app.pApplicationName = "binmatmul";
     VkInstanceCreateInfo ici{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO}; ici.pApplicationInfo=&app;
     if (vkCreateInstance(&ici, nullptr, &vk.instance) != VK_SUCCESS) { std::cerr << "vkCreateInstance failed\n"; return 1; }
 
@@ -265,6 +265,7 @@ int main(){
     vkMapMemory(vk.dev, bufB.mem, 0, szB, 0, &map); std::memcpy(map, B_bits.data(), (size_t)szB); vkUnmapMemory(vk.dev, bufB.mem);
     vkMapMemory(vk.dev, bufC.mem, 0, szC, 0, &map); std::memset(map, 0, (size_t)szC); vkUnmapMemory(vk.dev, bufC.mem);
 
+    
     // Descriptor set allocate & update
     VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO}; 
     dsai.descriptorPool=vk.dpool; 

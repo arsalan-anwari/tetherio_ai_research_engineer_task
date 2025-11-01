@@ -10,25 +10,6 @@
 
 namespace tether_io{
     using json = nlohmann::json;
-
-    std::ostream& operator<<(std::ostream& os, const json_error& e) {
-        // adjust to whatever your json_error stores
-        switch(e){
-            case json_error::invalid_json_format: { 
-                os << "invalid_json_format";
-                break;
-            }
-            case json_error::invalid_value_type: { 
-                os << "invalid_value_type";
-                break;
-            }
-            case json_error::key_not_found: { 
-                os << "key_not_found";
-                break;
-            }
-        }
-        return os;
-    }
 }
 
 namespace {
@@ -58,12 +39,17 @@ static inline auto file_contains_keys(const tether_io::json& in, const std::unor
 
 namespace tether_io{
 
-inline void from_json(const tether_io::json& j, tether_io::vec3<tether_io::u32>& v) {
-    if (!j.is_array() || j.size() != 3)
-        throw std::runtime_error("Expected JSON array of size 3 for vec3");
+inline void from_json(const json& j, vec3<u32>& v) {
     v.x = j.at(0).get<tether_io::u32>();
     v.y = j.at(1).get<tether_io::u32>();
     v.z = j.at(2).get<tether_io::u32>();
+}
+
+inline void from_json(const json& j, version<u32>& v) {
+    v.variant = j.at(0).get<u32>();
+    v.major = j.at(1).get<u32>();
+    v.minor = j.at(2).get<u32>();
+    v.patch = j.at(3).get<u32>();
 }
 
 auto kernel_type_from_str(str value) -> std::expected<kernel_type, json_error>{
@@ -134,16 +120,21 @@ inline auto parse_application_settings(std::filesystem::path path) -> std::expec
 
     for (const auto& entry : kernel_settings["compute"]) {
         try {
-            if (!file_contains_keys(entry, {"name", "format", "block_dim", "file"})){
+            if (!file_contains_keys(entry, {"recompile", "version", "param_size_bytes", "name", "format", "file"})){
                 return std::unexpected{ json_error::key_not_found };
             }
 
             kernel_config krnl;
+            krnl.name = entry["name"].get<str>();
+            krnl.recompile = entry["recompile"].get<bool>();
             krnl.type = comp_type.value();
-            
+
             auto format = kernel_format_from_str(entry["format"].get<str>());
             if(!format.has_value()) return std::unexpected{format.error()};
             krnl.format = format.value();
+
+            krnl.type_version = entry["version"].get<version<u32>>();
+            krnl.param_size_bytes = entry["param_size_bytes"].get<usize>();
 
             krnl.path = cfg.kernel_dir / entry["file"].get<str>();
             str bin_file_name = entry["name"].get<str>() + file_type_from_kernel_format(cfg.kernel_bin_format);

@@ -1,9 +1,20 @@
 {
     "compute": [
         {
+            "recompile": true,
+            "version": [0, 1, 1, 0],
+            "param_size_bytes": 16,
             "name": "binmatmul",
             "format": "glsl",
-            "file": "binmatmul.comp.glsl" 
+            "file": "binmatmul.comp.glsl"
+        },
+        {
+            "recompile": true,
+            "version": [0, 1, 1, 0],
+            "param_size_bytes": 8,
+            "name": "fill",
+            "format": "glsl",
+            "file": "fill.comp.glsl"
         }
     ]
 }

@@ -4,9 +4,11 @@
 
 #include <iostream>
 #include <expected>
-#include <ranges>
+#include <initializer_list>
+#include <fstream>
 
 #include <vulkan/vulkan.hpp>
+#include <shaderc/shaderc.hpp>
 
 #include "../types.hpp"
 
@@ -15,17 +17,20 @@ namespace tether_io{
     template<> struct device_buffer<device_driver::vulkan_native>{
         VkBuffer buff_handle{}; 
         VkDeviceMemory memory_handle{}; 
-        VkFence lock{};
         usize size_bytes{};
     };
 
-    template<> struct kernel<device_driver::vulkan_native>{};
+    template<> struct kernel<device_driver::vulkan_native>{
+        VkFence lock;
+    };
 
     struct vulkan_native_driver {
         
-        auto init(api_version<u32> vk_version, cstr app_name) -> std::expected<void, device_error> {
+        auto init(version<u32> vk_version, cstr app_name) -> std::expected<void, device_error> {
+            api_version = vk_version;
+            
             VkApplicationInfo app_cfg{VK_STRUCTURE_TYPE_APPLICATION_INFO}; 
-            app_cfg.apiVersion = VK_MAKE_API_VERSION(vk_version.version, vk_version.major, vk_version.minor, vk_version.patch);
+            app_cfg.apiVersion = VK_MAKE_API_VERSION(vk_version.variant, vk_version.major, vk_version.minor, vk_version.patch);
             app_cfg.pApplicationName = app_name.data();
 
             VkInstanceCreateInfo instance_cfg{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO}; 
@@ -38,7 +43,7 @@ namespace tether_io{
             }
 
             // Find all available devices
-            uint32_t device_count=0; 
+            u32 device_count=0; 
             vkEnumeratePhysicalDevices(instance, &device_count, nullptr); 
             if (!device_count){ 
                 //std::cout << "vkEnumeratePhysicalDevices" << std::endl;
@@ -88,10 +93,6 @@ namespace tether_io{
                         //std::cout << "!create_buffer_default()" << std::endl;
                         return std::unexpected { device_error::could_not_create_buffer };
                     }
-                    // if(!create_buffer_lock(buff)){
-                    //     std::cout << "!create_buffer_lock()" << std::endl;
-                    //     return std::unexpected { device_error::could_not_create_buffer };
-                    // }
                     break;
                 }
                 default : { return std::unexpected{ device_error::alloc_failed }; }
@@ -145,42 +146,92 @@ namespace tether_io{
         }
 
         auto register_kernel(
-            kernel_config krnl_opts, std::vector<device_buffer<device_driver::vulkan_native>>& buffers
+            kernel_config& krnl_opts, 
+            std::initializer_list<device_buffer<device_driver::vulkan_native>> buffers
         ) -> std::expected<kernel<device_driver::vulkan_native>, device_error> {
             kernel<device_driver::vulkan_native> krnl;
 
+            if (krnl_opts.recompile){
+                switch(krnl_opts.format){
+                    case kernel_format::glsl : {
+                        if (krnl_opts.type_version != api_version){
+                            return std::unexpected{device_error::shader_version_or_type_not_supported};
+                        }
+
+                        auto shader_bin = compile_glsl_to_spv(krnl_opts);
+                        if(!shader_bin.has_value()) return std::unexpected{shader_bin.error()};
+                        
+                        auto res = register_spv_to_pipeline(krnl_opts, buffers, shader_bin.value());
+                        if(!res.has_value()) return std::unexpected{res.error()};
+
+                        break;
+                    }
+                    default : { return std::unexpected{device_error::could_not_register_kernel}; }
+                }
+            }
 
             return krnl;
         };
 
-        void signal(device_buffer<device_driver::vulkan_native>& buff){
-            vkResetFences(device_handle, 1, &buff.lock);
+        template<class_type KernelParams>
+        auto launch_kernel(
+            kernel<device_driver::vulkan_native>& task, 
+            vec3<usize> workgroup_size, 
+            std::initializer_list<device_buffer<device_driver::vulkan_native>> buffers,
+            launch_method method,
+            KernelParams kernel_params
+        ) -> std::expected<void, device_error> {
+            
+            switch(method){
+                case launch_method::sync: {
+                    if(!update_descriptor_sets(buffers)){
+                        return std::unexpected{device_error::could_not_update_descriptors}; 
+                    }
 
-            VkSubmitInfo si;
-            si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-            si.commandBufferCount = 0;
+                    if(!dispatch_kernel_to_command_buffer(task, workgroup_size, kernel_params)){
+                        return std::unexpected{device_error::could_not_dispatch_kernel_to_command_buffer}; 
+                    }
 
-            vkQueueSubmit(queue_handle, 1, &si, buff.lock);
+                    break;
+                }
+                default: { return std::unexpected{device_error::launch_failed}; }
+            }
+            
+            return {};
+        };
+
+        auto wait_for_kernel(
+            kernel<device_driver::vulkan_native>& task, usize time_out
+        ) -> std::expected<void, device_error> {
+            if(vkWaitForFences(device_handle, 1, &task.lock, VK_TRUE, time_out) != VK_SUCCESS){
+                return std::unexpected{device_error::kernel_timout_reached};
+            }
+            
+            vkDestroyFence(device_handle, task.lock, nullptr);
+
+            return {};
         }
 
-        void kill(device_buffer<device_driver::vulkan_native>& buff){
+        void exit(std::initializer_list<device_buffer<device_driver::vulkan_native>> buffs){
             vkDeviceWaitIdle(device_handle);
-            vkDestroyDescriptorPool(device_handle, dpool, nullptr);
+            vkDestroyDescriptorPool(device_handle, descriptor_pool, nullptr);
             vkDestroyPipeline(device_handle, pipeline, nullptr);
-            vkDestroyPipelineLayout(device_handle, pipeLayout, nullptr);
-            vkDestroyDescriptorSetLayout(device_handle, dsetLayout, nullptr);
-            vkDestroyBuffer(device_handle, buff.buff_handle, nullptr); vkFreeMemory(device_handle, buff.memory_handle, nullptr);
-            vkDestroyCommandPool(device_handle, cpool, nullptr);
+            vkDestroyPipelineLayout(device_handle, pipeline_layout, nullptr);
+            
+            vkDestroyDescriptorSetLayout(device_handle, descriptor_layout, nullptr);
+            
+            for(auto& buff: buffs){
+                vkDestroyBuffer(device_handle, buff.buff_handle, nullptr); 
+                vkFreeMemory(device_handle, buff.memory_handle, nullptr);
+            }
+            
+            vkDestroyCommandPool(device_handle, command_pool, nullptr);
             vkDestroyDevice(device_handle, nullptr);
             vkDestroyInstance(instance, nullptr);
         }
 
     private:
-        VkDescriptorSetLayout dsetLayout{};
-        VkPipelineLayout pipeLayout{};
-        VkPipeline pipeline{};
-        VkDescriptorPool dpool{};
-        VkCommandPool cpool{};
+        version<u32> api_version;
 
         // App context
         VkInstance instance{};
@@ -193,6 +244,18 @@ namespace tether_io{
         // Queues
         u32 queue_family = 0;
         VkQueue queue_handle{};
+
+        // Descriptor
+        VkDescriptorSet descriptor; 
+        VkDescriptorPool descriptor_pool{};
+        VkDescriptorSetLayout descriptor_layout{};
+
+        // Pipeline
+        VkPipeline pipeline{};
+        VkPipelineLayout pipeline_layout{};
+
+        // Command pool
+        VkCommandPool command_pool{};
 
         auto find_first_computable_deivce() -> bool {
             //std::cout << "devices.size() = " << devices.size() << std::endl;
@@ -320,16 +383,6 @@ namespace tether_io{
             return true;
         }
         
-        auto create_buffer_lock(device_buffer<device_driver::vulkan_native>& buff) -> bool {
-            VkFenceCreateInfo fence_cfg{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-            fence_cfg.flags = 0; //unsignaled
-
-            if (vkCreateFence(device_handle, &fence_cfg, nullptr, &buff.lock) != VK_SUCCESS)
-                return false;
-
-            return true;
-        }
-
         template<typename T>
         auto upload_buffer_sync(
             device_buffer<device_driver::vulkan_native>& dest, 
@@ -374,6 +427,240 @@ namespace tether_io{
             
             // Unbind device buffer
             vkUnmapMemory(device_handle, src.memory_handle);
+
+            return true;
+        }
+
+        auto find_shaderrc_vulkan_shader_version(version<u32> ver) -> std::expected<shaderc_env_version, device_error>{
+            if (ver.major == 1 && ver.minor == 0) return shaderc_env_version_vulkan_1_0;
+            if (ver.major == 1 && ver.minor == 1) return shaderc_env_version_vulkan_1_1;
+            if (ver.major == 1 && ver.minor == 2) return shaderc_env_version_vulkan_1_2;
+            if (ver.major == 1 && ver.minor == 3) return shaderc_env_version_vulkan_1_3;
+            if (ver.major == 1 && ver.minor == 4) return shaderc_env_version_vulkan_1_4;
+            return std::unexpected{device_error::shader_version_or_type_not_supported};
+        }
+
+        auto compile_glsl_to_spv(kernel_config& krnl_opts) -> std::expected<std::vector<u32>, device_error>{
+            
+            // Check if compute context version is compatible with shaderrc version
+            shaderc::Compiler comp; 
+            shaderc::CompileOptions opts; 
+            auto shaderrc_version = find_shaderrc_vulkan_shader_version(krnl_opts.type_version);
+            if(!shaderrc_version.has_value()) return std::unexpected{shaderrc_version.error()};
+
+            opts.SetTargetEnvironment(shaderc_target_env_vulkan, shaderrc_version.value());
+            
+            // Load glsl shader into raw data
+            std::ifstream kernel_file(krnl_opts.path);
+            str kernel_raw((std::istreambuf_iterator<char>(kernel_file)), std::istreambuf_iterator<char>());
+            kernel_file.close();
+
+            // Compile shader into SpvCompilationResult vector
+            auto shader_bin_obj = comp.CompileGlslToSpv(kernel_raw, shaderc_compute_shader, krnl_opts.name.c_str());
+            if (shader_bin_obj.GetCompilationStatus() != shaderc_compilation_status_success) {
+                return std::unexpected{device_error::could_not_compile_shader};
+            }
+
+            // Convert SpvCompilationResult vector into raw u32 vector and store binary in seperate file for later
+            std::vector<u32> shader_bin(shader_bin_obj.cbegin(), shader_bin_obj.cend());
+            std::ofstream outFile(krnl_opts.path_bin, std::ios::binary);
+            outFile.write(reinterpret_cast<const char*>(shader_bin.data()),
+                        shader_bin.size() * sizeof(u32));
+            outFile.close();
+
+            // Return raw u32 vector representing spv binary as words.
+            return shader_bin;
+        }
+
+        auto register_spv_to_pipeline(
+            kernel_config& krnl_opts,
+            std::initializer_list<device_buffer<device_driver::vulkan_native>> buffers,
+            std::vector<u32>& spv_binary
+        ) -> std::expected<void, device_error> {
+            // Configure descriptors for each needed buffer for kernel
+            std::vector<VkDescriptorSetLayoutBinding> dslb;
+            dslb.resize(buffers.size());
+
+            for (i32 i=0; i<dslb.size(); ++i){ 
+                dslb[i].binding=i; 
+                dslb[i].descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; 
+                dslb[i].descriptorCount=1; 
+                dslb[i].stageFlags=VK_SHADER_STAGE_COMPUTE_BIT; 
+            }
+
+            // Configure descriptor layout
+            VkDescriptorSetLayoutCreateInfo dlci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO}; 
+            dlci.bindingCount=dslb.size(); 
+            dlci.pBindings=dslb.data();
+            
+            if (vkCreateDescriptorSetLayout(device_handle, &dlci, nullptr, &descriptor_layout) != VK_SUCCESS ){
+                return std::unexpected{device_error::could_not_update_descriptors};
+            }
+
+            // Configure how many bytes to allocate for kernel parameters
+            VkPushConstantRange pcr{}; 
+            pcr.offset=0; 
+            pcr.size=krnl_opts.param_size_bytes; 
+            pcr.stageFlags=VK_SHADER_STAGE_COMPUTE_BIT;
+
+            // Configure pipeline with buffer and kernel params info
+            VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO}; 
+            plci.setLayoutCount=1; 
+            plci.pSetLayouts=&descriptor_layout; 
+            plci.pushConstantRangeCount=1; 
+            plci.pPushConstantRanges=&pcr;
+            
+            if(vkCreatePipelineLayout(device_handle, &plci, nullptr, &pipeline_layout) != VK_SUCCESS ){
+                return std::unexpected{device_error::could_not_update_pipeline};
+            }
+
+            // Configure shader module with spv binary info
+            VkShaderModuleCreateInfo smci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO}; 
+            smci.codeSize=spv_binary.size() * sizeof(u32); 
+            smci.pCode=spv_binary.data();
+
+            VkShaderModule sm; 
+            if(vkCreateShaderModule(device_handle, &smci, nullptr, &sm) != VK_SUCCESS){
+                return std::unexpected{device_error::could_not_update_kernel_module};
+            };
+
+            // Stage shader module in pipeline
+            VkPipelineShaderStageCreateInfo ss{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO}; 
+            ss.stage=VK_SHADER_STAGE_COMPUTE_BIT; 
+            ss.module=sm; 
+            ss.pName="main"; // entry point name in shader code
+            
+            // Create compute pipeline
+            VkComputePipelineCreateInfo cpci{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO}; 
+            cpci.stage=ss; 
+            cpci.layout=pipeline_layout;
+            
+            if (vkCreateComputePipelines(device_handle, VK_NULL_HANDLE, 1, &cpci, nullptr, &pipeline) != VK_SUCCESS){
+                return std::unexpected{device_error::could_not_create_pipeline};
+            }
+            vkDestroyShaderModule(device_handle, sm, nullptr);
+
+            // Confgure descriptor pool to send buffers
+            VkDescriptorPoolSize dps{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, static_cast<u32>(buffers.size())};
+            VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO}; 
+            dpci.poolSizeCount=1; 
+            dpci.pPoolSizes=&dps; 
+            dpci.maxSets=1;
+            
+            if (vkCreateDescriptorPool(device_handle, &dpci, nullptr, &descriptor_pool) != VK_SUCCESS){
+                return std::unexpected{device_error::could_not_update_descriptors};
+            }
+
+            // Configure command pool to register all changes
+            VkCommandPoolCreateInfo cpci2{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO}; 
+            cpci2.queueFamilyIndex=queue_family; 
+            cpci2.flags=VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+            
+            if(vkCreateCommandPool(device_handle, &cpci2, nullptr, &command_pool) != VK_SUCCESS){
+                return std::unexpected{device_error::could_not_register_kernel};
+            }
+
+            return {};
+
+
+        }
+
+        auto update_descriptor_sets(
+            std::initializer_list<device_buffer<device_driver::vulkan_native>> buffs
+        ) -> bool{
+            // Configure new descriptor layout
+            VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO}; 
+            dsai.descriptorPool=descriptor_pool; 
+            dsai.descriptorSetCount=1; 
+            dsai.pSetLayouts=&descriptor_layout;
+
+            if(vkAllocateDescriptorSets(device_handle, &dsai, &descriptor) != VK_SUCCESS){
+                return false;
+            }
+
+            // Assign buffers to descriptor layout
+            std::vector<VkDescriptorBufferInfo> dbis;
+            dbis.resize(buffs.size());
+
+            for(u32 i=0; i<buffs.size(); ++i){
+                auto buff = *std::next(buffs.begin(), i);
+
+                dbis[i] = VkDescriptorBufferInfo{
+                    buff.buff_handle,
+                    0,
+                    buff.size_bytes
+                };
+            }
+
+            // Create write descriptors for transfer of buffers to sm
+            std::vector<VkWriteDescriptorSet> write_descriptors;
+            write_descriptors.resize(buffs.size());
+
+            for (i32 i=0; i<buffs.size(); ++i){ 
+                write_descriptors[i].sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; 
+                write_descriptors[i].dstSet=descriptor; 
+                write_descriptors[i].dstBinding=i; 
+                write_descriptors[i].descriptorCount=1; 
+                write_descriptors[i].descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; 
+                write_descriptors[i].pBufferInfo=&dbis[i]; 
+            }
+
+            vkUpdateDescriptorSets(device_handle, buffs.size(), write_descriptors.data(), 0, nullptr);
+
+            return true;
+        }
+
+        template<class_type KernelParams>
+        auto dispatch_kernel_to_command_buffer(
+            kernel<device_driver::vulkan_native>& task, 
+            vec3<usize> workgroup_size, 
+            KernelParams kernel_params
+        ) -> bool {
+            // Configure command buffer info
+            VkCommandBufferAllocateInfo cbai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO}; 
+            cbai.commandPool=command_pool; 
+            cbai.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY; 
+            cbai.commandBufferCount=1;
+            
+            // Create new command buffer
+            VkCommandBuffer cmd; 
+            if(vkAllocateCommandBuffers(device_handle, &cbai, &cmd) != VK_SUCCESS){
+                return false;
+            }
+            
+            // Start command buffer
+            VkCommandBufferBeginInfo cbbi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO}; 
+            if(vkBeginCommandBuffer(cmd, &cbbi) != VK_SUCCESS ){
+                return false;
+            }
+
+            // Bind updated pipeline and descripor sets
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout, 0, 1, &descriptor, 0, nullptr);
+
+            // Push kernel params for launch 
+            vkCmdPushConstants(cmd, pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(kernel_params), &kernel_params);
+
+            // Set workgroup size
+            vkCmdDispatch(cmd, workgroup_size.x, workgroup_size.y, workgroup_size.z);
+            
+            // End command buffer
+            if(vkEndCommandBuffer(cmd) != VK_SUCCESS){
+                return false;
+            }
+
+            // Submit command buffer to queue
+            VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO}; 
+            si.commandBufferCount=1; 
+            si.pCommandBuffers=&cmd;
+            
+            // Create fence to indicate compute has finshed
+            VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO}; 
+            vkCreateFence(device_handle, &fci, nullptr, &task.lock);
+            
+            if(vkQueueSubmit(queue_handle, 1, &si, task.lock) != VK_SUCCESS){
+                return false;
+            }
 
             return true;
         }

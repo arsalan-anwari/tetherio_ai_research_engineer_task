@@ -72,7 +72,7 @@ struct compute_context{
 
     template<typename... Args>
     auto register_kernel(
-        kernel_config krnl_opts, std::vector<device_buffer<D>>& buffers, Args&&... opts
+        kernel_config& krnl_opts, std::initializer_list<device_buffer<D>> buffers, Args&&... opts
     ) -> std::expected<kernel<D>, device_error> {
         auto result = driver.register_kernel(krnl_opts, buffers, opts...);
         if (!result.has_value()) return std::unexpected{ result.error() };
@@ -81,18 +81,26 @@ struct compute_context{
 
     template<typename... Args>
     auto launch_kernel(
-        kernel<D>& task, vec3<usize> workgroup_size, 
+        kernel<D>& task, vec3<usize> workgroup_size,
+        std::initializer_list<device_buffer<device_driver::vulkan_native>> buffers, 
         launch_method method = launch_method::sync, Args&&... opts
     ) -> std::expected<void, device_error> {
+        auto result = driver.launch_kernel(task, workgroup_size, buffers, method, opts...);
+        if (!result.has_value()) return std::unexpected{ result.error() };
         return {};
     };
 
-    void signal(device_buffer<D>& buff){
-        driver.signal(buff);
+    template<typename... Args>
+    auto wait_for_kernel(
+        kernel<D>& task, usize time_out, Args&&... opts
+    ) -> std::expected<void, device_error> {
+        auto result = driver.wait_for_kernel(task, time_out, opts...);
+        if (!result.has_value()) return std::unexpected{ result.error() };
+        return {};
     }
 
-    void kill(device_buffer<D>& buff){
-        driver.kill(buff);
+    void exit(std::initializer_list<device_buffer<D>> buffs){
+        driver.exit(buffs);
     }
 
 
