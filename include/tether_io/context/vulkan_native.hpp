@@ -8,6 +8,8 @@
 #include <fstream>
 #include <span>
 #include <vector>
+#include <array>
+#include <limits>
 #include <cstring>
 
 #include <vulkan/vulkan.hpp>
@@ -156,9 +158,14 @@ namespace tether_io{
 
         auto register_kernel(
             kernel_config& krnl_opts, 
+            vec3<u32> workgroup_size,
             std::initializer_list<device_buffer<device_driver::vulkan_native>> buffers
         ) -> std::expected<kernel<device_driver::vulkan_native>, device_error> {
             kernel<device_driver::vulkan_native> krnl;
+
+            if (!is_valid_workgroup_size(workgroup_size)){
+                return std::unexpected{device_error::could_not_register_kernel};
+            }
 
             if (krnl_opts.recompile){
                 switch(krnl_opts.format){
@@ -170,7 +177,7 @@ namespace tether_io{
                         auto shader_bin = compile_glsl_to_spv(krnl_opts);
                         if(!shader_bin.has_value()) return std::unexpected{shader_bin.error()};
                         
-                        auto res = register_spv_to_pipeline(krnl_opts, buffers, shader_bin.value(), krnl);
+                        auto res = register_spv_to_pipeline(krnl_opts, buffers, shader_bin.value(), krnl, workgroup_size);
                         if(!res.has_value()) return std::unexpected{res.error()};
 
                         break;
@@ -185,12 +192,17 @@ namespace tether_io{
         template<class_type KernelParams>
         auto launch_kernel(
             kernel<device_driver::vulkan_native>& task, 
-            vec3<usize> workgroup_size, 
+            vec3<u32> workgroup_size,
             std::initializer_list<device_buffer<device_driver::vulkan_native>> buffers,
             launch_method method,
             KernelParams kernel_params
         ) -> std::expected<void, device_error> {
             
+            
+            if (!is_valid_workgroup_size(workgroup_size)){
+                return std::unexpected{device_error::could_not_register_kernel};
+            }
+
             switch(method){
                 case launch_method::sync: {
                     if(!update_descriptor_sets(task, buffers)){
@@ -278,7 +290,7 @@ namespace tether_io{
                 vkDestroyInstance(instance, nullptr);
                 instance = VK_NULL_HANDLE;
             }
-        }
+        };
 
     private:
         version<u32> api_version;
@@ -297,6 +309,18 @@ namespace tether_io{
 
         // Command pool
         VkCommandPool command_pool{};
+
+        auto is_valid_workgroup_size(vec3<u32> work_group_size) -> bool {
+            if (work_group_size.x == 0 || work_group_size.y == 0 || work_group_size.z == 0){
+                return false;
+            }
+
+            constexpr auto workgroup_size_max = std::numeric_limits<u32>::max();
+            if (work_group_size.x > workgroup_size_max || work_group_size.y > workgroup_size_max || work_group_size.z > workgroup_size_max){
+                return false;
+            }
+            return true;
+        };
 
         auto find_first_computable_deivce() -> bool {
             //std::cout << "devices.size() = " << devices.size() << std::endl;
@@ -527,7 +551,8 @@ namespace tether_io{
             kernel_config& krnl_opts,
             std::initializer_list<device_buffer<device_driver::vulkan_native>> buffers,
             std::vector<u32>& spv_binary,
-            kernel<device_driver::vulkan_native>& krnl
+            kernel<device_driver::vulkan_native>& krnl,
+            vec3<u32> work_group_size
         ) -> std::expected<void, device_error> {
             // Configure descriptors for each needed buffer for kernel
             std::vector<VkDescriptorSetLayoutBinding> dslb;
@@ -582,11 +607,29 @@ namespace tether_io{
                 return std::unexpected{device_error::could_not_update_kernel_module};
             };
 
+            std::array<u32, 3> work_group_size_values{
+                work_group_size.x, work_group_size.y, work_group_size.z
+            };
+
+            std::array<VkSpecializationMapEntry, 3> specialization_entries{};
+            for (uint32_t idx = 0; idx < specialization_entries.size(); ++idx){
+                specialization_entries[idx].constantID = idx;
+                specialization_entries[idx].offset = idx * sizeof(uint32_t);
+                specialization_entries[idx].size = sizeof(uint32_t);
+            }
+
+            VkSpecializationInfo specialization_info{};
+            specialization_info.mapEntryCount = static_cast<uint32_t>(specialization_entries.size());
+            specialization_info.pMapEntries = specialization_entries.data();
+            specialization_info.dataSize = work_group_size_values.size() * sizeof(u32);
+            specialization_info.pData = work_group_size_values.data();
+
             // Stage shader module in pipeline
             VkPipelineShaderStageCreateInfo ss{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO}; 
             ss.stage=VK_SHADER_STAGE_COMPUTE_BIT; 
             ss.module=sm; 
             ss.pName="main"; // entry point name in shader code
+            ss.pSpecializationInfo = &specialization_info;
             
             // Create compute pipeline
             VkComputePipelineCreateInfo cpci{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO}; 
@@ -699,7 +742,7 @@ namespace tether_io{
         template<class_type KernelParams>
         auto dispatch_kernel_to_command_buffer(
             kernel<device_driver::vulkan_native>& task, 
-            vec3<usize> workgroup_size, 
+            vec3<u32> workgroup_size, 
             KernelParams kernel_params
         ) -> bool {
             // Configure command buffer info

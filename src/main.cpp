@@ -43,15 +43,18 @@ int main() {
     auto d_buff_1 = ctx.allocate(h_buff_1.size() * sizeof(float), alloc_method::base);
     res = ctx.upload(d_buff_1.value(), std::span<float>{h_buff_1}, upload_method::sync);
 
+    const vec3<u32> fill_workgroup{64, 1, 1};
+    const vec3<u32> multiply_workgroup{64, 1, 1};
+
     // Register kernels ahead of time so they can be queued back-to-back.
-    auto kernel_fill = ctx.register_kernel(kernel_fill_opts, {d_buff_1.value()});
+    auto kernel_fill = ctx.register_kernel(kernel_fill_opts, fill_workgroup, {d_buff_1.value()});
     if (!kernel_fill.has_value()){
         std::cout << kernel_fill.error() << std::endl;
         ctx.exit({d_buff_1.value()});
         return -1;
     }
 
-    auto kernel_mull = ctx.register_kernel(kernel_mul_opts, {d_buff_1.value()});
+    auto kernel_mull = ctx.register_kernel(kernel_mul_opts, multiply_workgroup, {d_buff_1.value()});
     if (!kernel_mull.has_value()){
         std::cout << kernel_mull.error() << std::endl;
         ctx.destroy_kernel(kernel_fill.value());
@@ -60,7 +63,7 @@ int main() {
     }
 
     // Launch fill first, followed immediately by multiply while data stays on device.
-    res = ctx.launch_kernel(kernel_fill.value(), vec3<usize>{64, 1, 1}, {d_buff_1.value()}, launch_method::sync, kernel_fill_params);
+    res = ctx.launch_kernel(kernel_fill.value(), fill_workgroup, {d_buff_1.value()}, launch_method::sync, kernel_fill_params);
     if (!res.has_value()){
         std::cout << res.error() << std::endl;
         ctx.destroy_kernel(kernel_mull.value());
@@ -69,7 +72,7 @@ int main() {
         return -1;
     }
 
-    res = ctx.launch_kernel(kernel_mull.value(), vec3<usize>{64, 1, 1}, {d_buff_1.value()}, launch_method::sync, kernel_mull_params);
+    res = ctx.launch_kernel(kernel_mull.value(), multiply_workgroup, {d_buff_1.value()}, launch_method::sync, kernel_mull_params);
     if (!res.has_value()){
         std::cout << res.error() << std::endl;
         ctx.destroy_kernel(kernel_mull.value());
