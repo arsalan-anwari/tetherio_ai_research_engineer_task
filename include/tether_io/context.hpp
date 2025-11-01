@@ -99,6 +99,10 @@ struct compute_context{
         return {};
     }
 
+    void destroy_kernel(kernel<D>& task){
+        driver.destroy_kernel(task);
+    }
+
     void exit(std::initializer_list<device_buffer<D>> buffs){
         driver.exit(buffs);
     }

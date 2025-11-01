@@ -6,6 +6,9 @@
 #include <expected>
 #include <initializer_list>
 #include <fstream>
+#include <span>
+#include <vector>
+#include <cstring>
 
 #include <vulkan/vulkan.hpp>
 #include <shaderc/shaderc.hpp>
@@ -21,7 +24,13 @@ namespace tether_io{
     };
 
     template<> struct kernel<device_driver::vulkan_native>{
-        VkFence lock;
+        VkFence lock{};
+        VkPipeline pipeline{};
+        VkPipelineLayout pipeline_layout{};
+        VkDescriptorSetLayout descriptor_layout{};
+        VkDescriptorPool descriptor_pool{};
+        VkDescriptorSet descriptor{};
+        VkCommandBuffer command_buffer{};
     };
 
     struct vulkan_native_driver {
@@ -161,7 +170,7 @@ namespace tether_io{
                         auto shader_bin = compile_glsl_to_spv(krnl_opts);
                         if(!shader_bin.has_value()) return std::unexpected{shader_bin.error()};
                         
-                        auto res = register_spv_to_pipeline(krnl_opts, buffers, shader_bin.value());
+                        auto res = register_spv_to_pipeline(krnl_opts, buffers, shader_bin.value(), krnl);
                         if(!res.has_value()) return std::unexpected{res.error()};
 
                         break;
@@ -184,7 +193,7 @@ namespace tether_io{
             
             switch(method){
                 case launch_method::sync: {
-                    if(!update_descriptor_sets(buffers)){
+                    if(!update_descriptor_sets(task, buffers)){
                         return std::unexpected{device_error::could_not_update_descriptors}; 
                     }
 
@@ -208,26 +217,67 @@ namespace tether_io{
             }
             
             vkDestroyFence(device_handle, task.lock, nullptr);
+            task.lock = VK_NULL_HANDLE;
 
             return {};
         }
 
+        auto destroy_kernel(kernel<device_driver::vulkan_native>& task) -> void {
+            if (task.lock != VK_NULL_HANDLE){
+                vkDestroyFence(device_handle, task.lock, nullptr);
+                task.lock = VK_NULL_HANDLE;
+            }
+
+            if (task.descriptor_pool != VK_NULL_HANDLE){
+                vkDestroyDescriptorPool(device_handle, task.descriptor_pool, nullptr);
+                task.descriptor_pool = VK_NULL_HANDLE;
+            }
+
+            if (task.pipeline != VK_NULL_HANDLE){
+                vkDestroyPipeline(device_handle, task.pipeline, nullptr);
+                task.pipeline = VK_NULL_HANDLE;
+            }
+
+            if (task.pipeline_layout != VK_NULL_HANDLE){
+                vkDestroyPipelineLayout(device_handle, task.pipeline_layout, nullptr);
+                task.pipeline_layout = VK_NULL_HANDLE;
+            }
+
+            if (task.descriptor_layout != VK_NULL_HANDLE){
+                vkDestroyDescriptorSetLayout(device_handle, task.descriptor_layout, nullptr);
+                task.descriptor_layout = VK_NULL_HANDLE;
+            }
+
+            if (task.command_buffer != VK_NULL_HANDLE){
+                vkFreeCommandBuffers(device_handle, command_pool, 1, &task.command_buffer);
+                task.command_buffer = VK_NULL_HANDLE;
+            }
+
+            task.descriptor = VK_NULL_HANDLE;
+        }
+
         void exit(std::initializer_list<device_buffer<device_driver::vulkan_native>> buffs){
             vkDeviceWaitIdle(device_handle);
-            vkDestroyDescriptorPool(device_handle, descriptor_pool, nullptr);
-            vkDestroyPipeline(device_handle, pipeline, nullptr);
-            vkDestroyPipelineLayout(device_handle, pipeline_layout, nullptr);
-            
-            vkDestroyDescriptorSetLayout(device_handle, descriptor_layout, nullptr);
             
             for(auto& buff: buffs){
                 vkDestroyBuffer(device_handle, buff.buff_handle, nullptr); 
                 vkFreeMemory(device_handle, buff.memory_handle, nullptr);
             }
             
-            vkDestroyCommandPool(device_handle, command_pool, nullptr);
-            vkDestroyDevice(device_handle, nullptr);
-            vkDestroyInstance(instance, nullptr);
+            if (command_pool != VK_NULL_HANDLE){
+                vkDestroyCommandPool(device_handle, command_pool, nullptr);
+                command_pool = VK_NULL_HANDLE;
+            }
+
+            if (device_handle != VK_NULL_HANDLE){
+                vkDestroyDevice(device_handle, nullptr);
+                device_handle = VK_NULL_HANDLE;
+            }
+
+            if (instance != VK_NULL_HANDLE){
+                vkDestroyInstance(instance, nullptr);
+                instance = VK_NULL_HANDLE;
+            }
         }
 
     private:
@@ -244,15 +294,6 @@ namespace tether_io{
         // Queues
         u32 queue_family = 0;
         VkQueue queue_handle{};
-
-        // Descriptor
-        VkDescriptorSet descriptor; 
-        VkDescriptorPool descriptor_pool{};
-        VkDescriptorSetLayout descriptor_layout{};
-
-        // Pipeline
-        VkPipeline pipeline{};
-        VkPipelineLayout pipeline_layout{};
 
         // Command pool
         VkCommandPool command_pool{};
@@ -325,6 +366,16 @@ namespace tether_io{
 
             // Create queue and assign to handle based on queue settings
             vkGetDeviceQueue(device_handle, queue_family, 0, &queue_handle);
+
+            VkCommandPoolCreateInfo cpci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+            cpci.queueFamilyIndex = queue_family;
+            cpci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+
+            if (vkCreateCommandPool(device_handle, &cpci, nullptr, &command_pool) != VK_SUCCESS){
+                vkDestroyDevice(device_handle, nullptr);
+                device_handle = VK_NULL_HANDLE;
+                return false;
+            }
 
             return true;
         }
@@ -475,7 +526,8 @@ namespace tether_io{
         auto register_spv_to_pipeline(
             kernel_config& krnl_opts,
             std::initializer_list<device_buffer<device_driver::vulkan_native>> buffers,
-            std::vector<u32>& spv_binary
+            std::vector<u32>& spv_binary,
+            kernel<device_driver::vulkan_native>& krnl
         ) -> std::expected<void, device_error> {
             // Configure descriptors for each needed buffer for kernel
             std::vector<VkDescriptorSetLayoutBinding> dslb;
@@ -493,7 +545,7 @@ namespace tether_io{
             dlci.bindingCount=dslb.size(); 
             dlci.pBindings=dslb.data();
             
-            if (vkCreateDescriptorSetLayout(device_handle, &dlci, nullptr, &descriptor_layout) != VK_SUCCESS ){
+            if (vkCreateDescriptorSetLayout(device_handle, &dlci, nullptr, &krnl.descriptor_layout) != VK_SUCCESS ){
                 return std::unexpected{device_error::could_not_update_descriptors};
             }
 
@@ -506,11 +558,13 @@ namespace tether_io{
             // Configure pipeline with buffer and kernel params info
             VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO}; 
             plci.setLayoutCount=1; 
-            plci.pSetLayouts=&descriptor_layout; 
+            plci.pSetLayouts=&krnl.descriptor_layout; 
             plci.pushConstantRangeCount=1; 
             plci.pPushConstantRanges=&pcr;
             
-            if(vkCreatePipelineLayout(device_handle, &plci, nullptr, &pipeline_layout) != VK_SUCCESS ){
+            if(vkCreatePipelineLayout(device_handle, &plci, nullptr, &krnl.pipeline_layout) != VK_SUCCESS ){
+                vkDestroyDescriptorSetLayout(device_handle, krnl.descriptor_layout, nullptr);
+                krnl.descriptor_layout = VK_NULL_HANDLE;
                 return std::unexpected{device_error::could_not_update_pipeline};
             }
 
@@ -521,6 +575,10 @@ namespace tether_io{
 
             VkShaderModule sm; 
             if(vkCreateShaderModule(device_handle, &smci, nullptr, &sm) != VK_SUCCESS){
+                vkDestroyPipelineLayout(device_handle, krnl.pipeline_layout, nullptr);
+                krnl.pipeline_layout = VK_NULL_HANDLE;
+                vkDestroyDescriptorSetLayout(device_handle, krnl.descriptor_layout, nullptr);
+                krnl.descriptor_layout = VK_NULL_HANDLE;
                 return std::unexpected{device_error::could_not_update_kernel_module};
             };
 
@@ -533,9 +591,14 @@ namespace tether_io{
             // Create compute pipeline
             VkComputePipelineCreateInfo cpci{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO}; 
             cpci.stage=ss; 
-            cpci.layout=pipeline_layout;
+            cpci.layout=krnl.pipeline_layout;
             
-            if (vkCreateComputePipelines(device_handle, VK_NULL_HANDLE, 1, &cpci, nullptr, &pipeline) != VK_SUCCESS){
+            if (vkCreateComputePipelines(device_handle, VK_NULL_HANDLE, 1, &cpci, nullptr, &krnl.pipeline) != VK_SUCCESS){
+                vkDestroyShaderModule(device_handle, sm, nullptr);
+                vkDestroyPipelineLayout(device_handle, krnl.pipeline_layout, nullptr);
+                krnl.pipeline_layout = VK_NULL_HANDLE;
+                vkDestroyDescriptorSetLayout(device_handle, krnl.descriptor_layout, nullptr);
+                krnl.descriptor_layout = VK_NULL_HANDLE;
                 return std::unexpected{device_error::could_not_create_pipeline};
             }
             vkDestroyShaderModule(device_handle, sm, nullptr);
@@ -547,16 +610,30 @@ namespace tether_io{
             dpci.pPoolSizes=&dps; 
             dpci.maxSets=1;
             
-            if (vkCreateDescriptorPool(device_handle, &dpci, nullptr, &descriptor_pool) != VK_SUCCESS){
+            if (vkCreateDescriptorPool(device_handle, &dpci, nullptr, &krnl.descriptor_pool) != VK_SUCCESS){
+                vkDestroyPipeline(device_handle, krnl.pipeline, nullptr);
+                krnl.pipeline = VK_NULL_HANDLE;
+                vkDestroyPipelineLayout(device_handle, krnl.pipeline_layout, nullptr);
+                krnl.pipeline_layout = VK_NULL_HANDLE;
+                vkDestroyDescriptorSetLayout(device_handle, krnl.descriptor_layout, nullptr);
+                krnl.descriptor_layout = VK_NULL_HANDLE;
                 return std::unexpected{device_error::could_not_update_descriptors};
             }
 
-            // Configure command pool to register all changes
-            VkCommandPoolCreateInfo cpci2{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO}; 
-            cpci2.queueFamilyIndex=queue_family; 
-            cpci2.flags=VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-            
-            if(vkCreateCommandPool(device_handle, &cpci2, nullptr, &command_pool) != VK_SUCCESS){
+            VkCommandBufferAllocateInfo cbai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+            cbai.commandPool = command_pool;
+            cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            cbai.commandBufferCount = 1;
+
+            if (vkAllocateCommandBuffers(device_handle, &cbai, &krnl.command_buffer) != VK_SUCCESS){
+                vkDestroyDescriptorPool(device_handle, krnl.descriptor_pool, nullptr);
+                krnl.descriptor_pool = VK_NULL_HANDLE;
+                vkDestroyPipeline(device_handle, krnl.pipeline, nullptr);
+                krnl.pipeline = VK_NULL_HANDLE;
+                vkDestroyPipelineLayout(device_handle, krnl.pipeline_layout, nullptr);
+                krnl.pipeline_layout = VK_NULL_HANDLE;
+                vkDestroyDescriptorSetLayout(device_handle, krnl.descriptor_layout, nullptr);
+                krnl.descriptor_layout = VK_NULL_HANDLE;
                 return std::unexpected{device_error::could_not_register_kernel};
             }
 
@@ -566,15 +643,24 @@ namespace tether_io{
         }
 
         auto update_descriptor_sets(
+            kernel<device_driver::vulkan_native>& task,
             std::initializer_list<device_buffer<device_driver::vulkan_native>> buffs
         ) -> bool{
+            if (task.descriptor_pool == VK_NULL_HANDLE || task.descriptor_layout == VK_NULL_HANDLE){
+                return false;
+            }
+
+            if (vkResetDescriptorPool(device_handle, task.descriptor_pool, 0) != VK_SUCCESS){
+                return false;
+            }
+
             // Configure new descriptor layout
             VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO}; 
-            dsai.descriptorPool=descriptor_pool; 
+            dsai.descriptorPool=task.descriptor_pool; 
             dsai.descriptorSetCount=1; 
-            dsai.pSetLayouts=&descriptor_layout;
+            dsai.pSetLayouts=&task.descriptor_layout;
 
-            if(vkAllocateDescriptorSets(device_handle, &dsai, &descriptor) != VK_SUCCESS){
+            if(vkAllocateDescriptorSets(device_handle, &dsai, &task.descriptor) != VK_SUCCESS){
                 return false;
             }
 
@@ -598,7 +684,7 @@ namespace tether_io{
 
             for (i32 i=0; i<buffs.size(); ++i){ 
                 write_descriptors[i].sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; 
-                write_descriptors[i].dstSet=descriptor; 
+                write_descriptors[i].dstSet=task.descriptor; 
                 write_descriptors[i].dstBinding=i; 
                 write_descriptors[i].descriptorCount=1; 
                 write_descriptors[i].descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; 
@@ -617,46 +703,47 @@ namespace tether_io{
             KernelParams kernel_params
         ) -> bool {
             // Configure command buffer info
-            VkCommandBufferAllocateInfo cbai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO}; 
-            cbai.commandPool=command_pool; 
-            cbai.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY; 
-            cbai.commandBufferCount=1;
-            
-            // Create new command buffer
-            VkCommandBuffer cmd; 
-            if(vkAllocateCommandBuffers(device_handle, &cbai, &cmd) != VK_SUCCESS){
+            if (task.command_buffer == VK_NULL_HANDLE){
                 return false;
             }
+
+            vkResetCommandBuffer(task.command_buffer, 0);
             
             // Start command buffer
             VkCommandBufferBeginInfo cbbi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO}; 
-            if(vkBeginCommandBuffer(cmd, &cbbi) != VK_SUCCESS ){
+            if(vkBeginCommandBuffer(task.command_buffer, &cbbi) != VK_SUCCESS ){
                 return false;
             }
 
             // Bind updated pipeline and descripor sets
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout, 0, 1, &descriptor, 0, nullptr);
+            vkCmdBindPipeline(task.command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, task.pipeline);
+            vkCmdBindDescriptorSets(task.command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, task.pipeline_layout, 0, 1, &task.descriptor, 0, nullptr);
 
             // Push kernel params for launch 
-            vkCmdPushConstants(cmd, pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(kernel_params), &kernel_params);
+            vkCmdPushConstants(task.command_buffer, task.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(KernelParams), &kernel_params);
 
             // Set workgroup size
-            vkCmdDispatch(cmd, workgroup_size.x, workgroup_size.y, workgroup_size.z);
+            vkCmdDispatch(task.command_buffer, workgroup_size.x, workgroup_size.y, workgroup_size.z);
             
             // End command buffer
-            if(vkEndCommandBuffer(cmd) != VK_SUCCESS){
+            if(vkEndCommandBuffer(task.command_buffer) != VK_SUCCESS){
                 return false;
             }
 
             // Submit command buffer to queue
             VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO}; 
             si.commandBufferCount=1; 
-            si.pCommandBuffers=&cmd;
+            si.pCommandBuffers=&task.command_buffer;
             
             // Create fence to indicate compute has finshed
             VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO}; 
-            vkCreateFence(device_handle, &fci, nullptr, &task.lock);
+            if (task.lock != VK_NULL_HANDLE){
+                vkDestroyFence(device_handle, task.lock, nullptr);
+                task.lock = VK_NULL_HANDLE;
+            }
+            if(vkCreateFence(device_handle, &fci, nullptr, &task.lock) != VK_SUCCESS){
+                return false;
+            }
             
             if(vkQueueSubmit(queue_handle, 1, &si, task.lock) != VK_SUCCESS){
                 return false;
