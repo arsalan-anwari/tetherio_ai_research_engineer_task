@@ -7,19 +7,10 @@
   ],
   "features": {
     "windows-x64-vulkan": {
-      "description": "Windows desktop with Vulkan backend",
+      "description": "Windows desktop with Vulkan backend for llama-cpp",
       "dependencies": [
         "vulkan",
         "shaderc"
-      ]
-    },
-    "windows-x64-llama-vulkan": {
-      "description": "Windows desktop with llama backend using Vulkan driver",
-      "dependencies": [
-        "vulkan",
-        "shaderc",
-        { "name": "ggml", "features": ["vulkan"] },
-        "llama-cpp"
       ]
     }
   }

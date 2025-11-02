@@ -41,5 +41,7 @@
 *.dwo
 
 build/
-
 .venv/
+.vs/
+.vscode/
+.third_party/

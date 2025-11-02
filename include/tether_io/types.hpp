@@ -50,7 +50,7 @@ template<typename T>
 concept class_type = std::is_class_v<T>;
 
 // Device Context Types
-enum class device_driver : u8 { vulkan_native, ggml_vulkan, cuda_native, opencl_native, cpu_native };
+enum class device_driver : u8 { vulkan_native, cuda_native, opencl_native, cpu_native };
 enum class device_select : u8 { first_available, first_compute_capable, discrete, integrated };
 
 template<device_driver D>

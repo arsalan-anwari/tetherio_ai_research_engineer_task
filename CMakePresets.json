@@ -23,7 +23,8 @@
       "hidden": true,
       "cacheVariables": {
         "VCPKG_TARGET_TRIPLET": "x64-windows", 
-        "CMAKE_CONFIGURATION_TYPES": "Release"
+        "CMAKE_CONFIGURATION_TYPES": "Release",
+        "ENABLE_LLAMA_CPP": "OFF"
       }
     },
     {
@@ -32,14 +33,6 @@
       "cacheVariables": {
         "VCPKG_MANIFEST_FEATURES": "${presetName}"
       }
-    },
-    {
-      "name": "windows-x64-llama-vulkan",
-      "inherits": "windows-x64",
-      "cacheVariables": {
-        "VCPKG_MANIFEST_FEATURES": "${presetName}",
-        "GGML_VULKAN": "ON"
-      }
     }
   ],
 
@@ -47,11 +40,6 @@
     {
       "name": "windows-x64-vulkan",
       "configurePreset": "windows-x64-vulkan",
-      "configuration": "Release"
-    },
-    {
-      "name": "windows-x64-llama-vulkan",
-      "configurePreset": "windows-x64-llama-vulkan",
       "configuration": "Release"
     }
   ]

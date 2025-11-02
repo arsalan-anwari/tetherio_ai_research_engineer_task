@@ -8,15 +8,12 @@ if(TARGET_VULKAN_NATIVE)
     target_compile_definitions(app PRIVATE USE_SHADERC=1)
 endif()
 
-if(TARGET_LLAMA_VULKAN)
+if(ENABLE_LLAMA_CPP)
     target_link_libraries(app
         PRIVATE
             llama
-            Vulkan::Vulkan
-            unofficial::shaderc::shaderc
     )
 
-    target_compile_definitions(app PRIVATE USE_SHADERC=1)
 endif()
 
 # Univeral libraries
@@ -27,5 +24,14 @@ target_include_directories(app
     PRIVATE
         ${CMAKE_SOURCE_DIR}/include
 )
+
+if(ENABLE_LLAMA_CPP)
+
+target_include_directories(app
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/llama-cpp/include
+)
+
+endif()
 
 target_compile_definitions(app PRIVATE RESOURCE_DIR=\"${RESOURCE_DIR}\")
