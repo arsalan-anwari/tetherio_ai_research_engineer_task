@@ -11,7 +11,7 @@
 namespace tether_io{
 
 template<typename T> 
-auto multiply_sequenced_vulkan_native(
+auto multiply_vulkan_native_sequenced(
     compute_context<device_driver::vulkan_native>& ctx,
     application_config& config,
     vec3<u32> work_group_size,
@@ -48,7 +48,7 @@ auto multiply_sequenced_vulkan_native(
 }
 
 template<typename T> 
-auto multiply_standalone_vulkan_native(
+auto multiply_vulkan_native_standalone(
     compute_context<device_driver::vulkan_native>& ctx,
     application_config& config,
     vec3<u32> work_group_size,

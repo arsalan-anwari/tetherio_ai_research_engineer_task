@@ -157,6 +157,24 @@ namespace tether_io{
 
         }
 
+        auto limits() -> std::expected<device_limits, device_error>{
+            if (device == VK_NULL_HANDLE){
+                return std::unexpected{device_error::not_available};
+            }
+
+            VkPhysicalDeviceProperties props{};
+            vkGetPhysicalDeviceProperties(device, &props);
+
+            device_limits out{};
+            out.max_compute_work_group_size = vec3<u32>{
+                props.limits.maxComputeWorkGroupSize[0],
+                props.limits.maxComputeWorkGroupSize[1],
+                props.limits.maxComputeWorkGroupSize[2]
+            };
+
+            return out;
+        }
+
         auto register_kernel(
             kernel_config& krnl_opts, 
             vec3<u32> workgroup_size,

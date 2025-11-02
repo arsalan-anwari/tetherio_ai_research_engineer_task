@@ -129,6 +129,10 @@ enum class device_error : u8 {
     kernel_timout_reached,
 };
 
+struct device_limits {
+    vec3<u32> max_compute_work_group_size{1u, 1u, 1u};
+};
+
 std::ostream& operator<<(std::ostream& os, const json_error& error) {
     switch (error) {
         case json_error::invalid_json_format :

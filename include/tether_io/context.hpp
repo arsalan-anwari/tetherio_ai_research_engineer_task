@@ -121,6 +121,12 @@ struct compute_context{
         return {};
     }
 
+    auto limits() -> std::expected<device_limits, device_error>{
+        auto result = driver.limits();
+        if (!result.has_value()) return std::unexpected{ result.error() };
+        return result.value();
+    }
+
     void destroy_kernel(kernel<D>& task){
         driver.destroy_kernel(task);
     }

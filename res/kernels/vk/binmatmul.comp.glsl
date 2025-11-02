@@ -1,5 +1,9 @@
 #version 450
-layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(constant_id = 0) const uint LOCAL_SIZE_X = 8;
+layout(constant_id = 1) const uint LOCAL_SIZE_Y = 8;
+layout(constant_id = 2) const uint LOCAL_SIZE_Z = 1;
+layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
 
 // Buffers
 layout(set = 0, binding = 0) readonly buffer A_buf { uint A_bits[]; };
