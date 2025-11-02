@@ -50,7 +50,7 @@ template<typename T>
 concept class_type = std::is_class_v<T>;
 
 // Device Context Types
-enum class device_driver : u8 { vulkan_native, ggml_vulkan, cuda_native, opencl_native };
+enum class device_driver : u8 { vulkan_native, ggml_vulkan, cuda_native, opencl_native, cpu_native };
 enum class device_select : u8 { first_available, first_compute_capable, discrete, integrated };
 
 template<device_driver D>
@@ -60,13 +60,15 @@ struct device_driver_impl;
 template<device_driver D>
 struct device_buffer;
 
-enum class alloc_method { base, custom };
-enum class upload_method { sync, async };
-enum class download_method { sync, async };
-
 enum class precision : u8 { binary_1bit = 1 /* 1-bit weights/acts */ };
 enum class data_domain   : u8 { pm_one, zero_one };  // ±1 or {0,1}
 enum class matrix_order   : u8 { row_major, col_major };
+
+// Exection methods
+enum class alloc_method { base, custom };
+enum class upload_method { sync, async };
+enum class download_method { sync, async };
+enum class execution_method { standalone, sequenced };
 
 // Kernel types
 enum class kernel_type : u8 { vulkan_compute_shader /* future: CUDA, Metal */ };

@@ -110,6 +110,7 @@ namespace tether_io{
 
             }
             
+            buffer_states.push_back(buff);
             return buff;
         };
         
@@ -217,6 +218,8 @@ namespace tether_io{
                 }
                 default: { return std::unexpected{device_error::launch_failed}; }
             }
+
+            last_kernel = task;
             
             return {};
         };
@@ -230,6 +233,19 @@ namespace tether_io{
             
             vkDestroyFence(device_handle, task.lock, nullptr);
             task.lock = VK_NULL_HANDLE;
+
+            return {};
+        }
+
+        auto wait_for_last_kernel(
+            usize time_out
+        ) -> std::expected<void, device_error> {
+            if(vkWaitForFences(device_handle, 1, &last_kernel.lock, VK_TRUE, time_out) != VK_SUCCESS){
+                return std::unexpected{device_error::kernel_timout_reached};
+            }
+            
+            vkDestroyFence(device_handle, last_kernel.lock, nullptr);
+            last_kernel.lock = VK_NULL_HANDLE;
 
             return {};
         }
@@ -268,10 +284,10 @@ namespace tether_io{
             task.descriptor = VK_NULL_HANDLE;
         }
 
-        void exit(std::initializer_list<device_buffer<device_driver::vulkan_native>> buffs){
+        void exit(){
             vkDeviceWaitIdle(device_handle);
             
-            for(auto& buff: buffs){
+            for(auto& buff: buffer_states){
                 vkDestroyBuffer(device_handle, buff.buff_handle, nullptr); 
                 vkFreeMemory(device_handle, buff.memory_handle, nullptr);
             }
@@ -309,6 +325,12 @@ namespace tether_io{
 
         // Command pool
         VkCommandPool command_pool{};
+
+        // Keep a list of all allocated buffer to be able to destory in the future on exit. 
+        std::vector<device_buffer<device_driver::vulkan_native>> buffer_states;
+
+        // Last kernel launched
+        kernel<device_driver::vulkan_native> last_kernel;
 
         auto is_valid_workgroup_size(vec3<u32> work_group_size) -> bool {
             if (work_group_size.x == 0 || work_group_size.y == 0 || work_group_size.z == 0){

@@ -111,12 +111,22 @@ struct compute_context{
         return {};
     }
 
+    template<typename... Args>
+    auto wait_for_last_kernel(
+        usize time_out, 
+        Args&&... opts
+    ) -> std::expected<void, device_error> {
+        auto result = driver.wait_for_last_kernel(time_out, opts...);
+        if (!result.has_value()) return std::unexpected{ result.error() };
+        return {};
+    }
+
     void destroy_kernel(kernel<D>& task){
         driver.destroy_kernel(task);
     }
 
-    void exit(std::initializer_list<device_buffer<D>> buffs){
-        driver.exit(buffs);
+    void exit(){
+        driver.exit();
     }
 
 

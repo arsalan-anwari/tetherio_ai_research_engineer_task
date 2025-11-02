@@ -5,18 +5,7 @@
 
 #include <tether_io/config.hpp>
 #include <tether_io/context.hpp>
-
-// struct kernel_config {
-//     str name;
-//     bool recompile;
-//     kernel_type type;
-//     kernel_format format;
-//     version<u32> type_version;
-//     usize param_size_bytes; 
-//     std::filesystem::path path;
-//     std::filesystem::path path_bin;
-// };
-
+#include <tether_io/algorithm.hpp>
 
 int main() {
     using namespace tether_io;
@@ -27,89 +16,36 @@ int main() {
         std::cout << config.error() << std::endl; 
         return -1; 
     }
-    
-    kernel_config kernel_fill_opts = config.value().kernels["fill"];
-    kernel_config kernel_mul_opts = config.value().kernels["multiply"];
 
-    std::array<float, 100> h_buff_1 = {0};
-    std::array<float, 100> g_buff_1 = {0};
-    struct KernelFillParams { float value; u32 count; } kernel_fill_params { 53.455f, 100 };
-    struct KernelMullParams { float factor; u32 count; } kernel_mull_params { 2.0f, 100 };
-  
+    std::array<float, 100> g_buff_raw = {0};
+    auto g_buff = std::span<float>{g_buff_raw};
+      
     compute_context<device_driver::vulkan_native> ctx;
     auto res = ctx.init(version<u32>{0, 1, 1, 0}, "HelloWorld");
     res = ctx.set_device(device_select::first_compute_capable);
 
-    auto d_buff_1 = ctx.allocate(h_buff_1.size() * sizeof(float), alloc_method::base);
-    res = ctx.upload(d_buff_1.value(), std::span<float>{h_buff_1}, upload_method::sync);
+    auto d_buff = ctx.allocate(g_buff.size() * sizeof(float), alloc_method::base);
 
-    const vec3<u32> fill_workgroup{64, 1, 1};
-    const vec3<u32> multiply_workgroup{64, 1, 1};
+    algorithm<device_driver::vulkan_native, execution_method::sequenced> kernel_launcher(ctx, config.value());
 
-    // Register kernels ahead of time so they can be queued back-to-back.
-    auto kernel_fill = ctx.register_kernel(kernel_fill_opts, fill_workgroup, {d_buff_1.value()});
-    if (!kernel_fill.has_value()){
-        std::cout << kernel_fill.error() << std::endl;
-        ctx.exit({d_buff_1.value()});
-        return -1;
-    }
+    res = kernel_launcher.fill(vec3<u32>{64, 1, 1}, d_buff.value(), 128.0f);
+    res = kernel_launcher.multiply(vec3<u32>{64, 1, 1}, d_buff.value(), 2.0f);
 
-    auto kernel_mull = ctx.register_kernel(kernel_mul_opts, multiply_workgroup, {d_buff_1.value()});
-    if (!kernel_mull.has_value()){
-        std::cout << kernel_mull.error() << std::endl;
-        ctx.destroy_kernel(kernel_fill.value());
-        ctx.exit({d_buff_1.value()});
-        return -1;
-    }
+    ctx.wait_for_last_kernel(1'000'000'000ull);
 
-    // Launch fill first, followed immediately by multiply while data stays on device.
-    res = ctx.launch_kernel(kernel_fill.value(), fill_workgroup, {d_buff_1.value()}, launch_method::sync, kernel_fill_params);
+    res = ctx.download(g_buff, d_buff.value(), download_method::sync);
     if (!res.has_value()){
+        ctx.exit();
         std::cout << res.error() << std::endl;
-        ctx.destroy_kernel(kernel_mull.value());
-        ctx.destroy_kernel(kernel_fill.value());
-        ctx.exit({d_buff_1.value()});
         return -1;
     }
 
-    res = ctx.launch_kernel(kernel_mull.value(), multiply_workgroup, {d_buff_1.value()}, launch_method::sync, kernel_mull_params);
-    if (!res.has_value()){
-        std::cout << res.error() << std::endl;
-        ctx.destroy_kernel(kernel_mull.value());
-        ctx.destroy_kernel(kernel_fill.value());
-        ctx.exit({d_buff_1.value()});
-        return -1;
-    }
-
-    // Wait once on the last kernel; the queue guarantees the fill submission has finished as well.
-    res = ctx.wait_for_kernel(kernel_mull.value(), 1'000'000'000ull);
-    if (!res.has_value()){
-        std::cout << res.error() << std::endl;
-        ctx.destroy_kernel(kernel_mull.value());
-        ctx.destroy_kernel(kernel_fill.value());
-        ctx.exit({d_buff_1.value()});
-        return -1;
-    }
-
-    // Download results back to host
-    res = ctx.download(std::span<float>{g_buff_1}, d_buff_1.value(), download_method::sync);
-    if (!res.has_value()){
-        std::cout << res.error() << std::endl;
-        ctx.destroy_kernel(kernel_mull.value());
-        ctx.destroy_kernel(kernel_fill.value());
-        ctx.exit({d_buff_1.value()});
-        return -1;
-    }
-    
-    // Close compute context
-    ctx.destroy_kernel(kernel_mull.value());
-    ctx.destroy_kernel(kernel_fill.value());
-    ctx.exit({d_buff_1.value()});
+    ctx.exit();
 
     // Print out results
-    std::cout << "g_buff_1[100] = { " << std::endl;
+    std::cout << "g_buff[100] = { " << std::endl;
     int i = 0;
-    for(const float& e: g_buff_1){
+    for(const float& e: g_buff){
         std::cout << e << " ";
         if (i >= 20){
             std::cout << std::endl;
