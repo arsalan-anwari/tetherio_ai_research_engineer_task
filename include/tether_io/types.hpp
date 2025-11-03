@@ -60,7 +60,7 @@ struct device_driver_impl;
 template<device_driver D>
 struct device_buffer;
 
-enum class data_domain   : u8 { full_range, pm_one, zero_one };  // ±1 or {0,1}
+enum class data_domain   : u8 { full_range, pm_one, zero_one, trinary };
 enum class matrix_order   : u8 { row_major, col_major };
 
 // Exection methods

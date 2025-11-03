@@ -148,6 +148,36 @@ auto random_mat_binary_f32_1d_full_range_dist_cpu_native_standalone(
     return out;
 }
 
+auto random_mat_binary_f32_1d_trinary_dist_cpu_native_standalone(
+    u32 rows, u32 cols, u32 seed
+) -> std::expected<std::vector<f32>, device_error> {
+    if (rows == 0 || cols == 0){
+        return std::unexpected{ device_error::launch_failed };
+    }
+
+    std::vector<f32> out;
+
+    // Create random number generator
+    std::random_device rd;  // Seed source (hardware)
+    std::mt19937 gen(rd()); // Mersenne Twister engine
+    std::uniform_int_distribution<i32> dist(0, 2); // 0, 1, 2
+
+    out.resize(static_cast<usize>(rows) * cols);
+
+    for (usize i = 0; i < out.size(); ++i){
+        f32 x;
+        int r = dist(gen);
+        if (r == 0) x = -1.0f;
+        else if (r == 1) x = 0.0f;
+        else x = 1.0f;
+        
+        out[i] = x;
+    }
+
+
+    return out;
+}
+
 
 
 } // tether_io
