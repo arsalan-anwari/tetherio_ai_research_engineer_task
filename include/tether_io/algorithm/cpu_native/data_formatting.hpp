@@ -73,7 +73,7 @@ auto f32_mat_to_packed_u32_col_major_cpu_native_standalone(
 }
 
 // Create a random matrix with binary distribution as floating point representation (-1.f, 1.0f)
-auto random_mat_binary_f32_1d_cpu_native_standalone(
+auto random_mat_binary_f32_1d_pm_one_dist_cpu_native_standalone(
     u32 rows, u32 cols, u32 seed
 ) -> std::expected<std::vector<f32>, device_error> {
     if (rows == 0 || cols == 0){
@@ -90,6 +90,60 @@ auto random_mat_binary_f32_1d_cpu_native_standalone(
     for (usize i = 0; i < out.size(); ++i){
         out[i] = (d(rng) == 1 ? 1.0f : -1.0f);
     }
+
+    return out;
+}
+
+auto random_mat_binary_f32_1d_zero_one_dist_cpu_native_standalone(
+    u32 rows, u32 cols, u32 seed
+) -> std::expected<std::vector<f32>, device_error> {
+    if (rows == 0 || cols == 0){
+        return std::unexpected{ device_error::launch_failed };
+    }
+
+    std::vector<f32> out;
+
+    f32 lower_bound = 0.0f;
+    f32 upper_bound = 1.0f;
+
+    // Create random number generator
+    std::random_device rd;  // Seed source (hardware)
+    std::mt19937 gen(rd()); // Mersenne Twister engine
+    std::uniform_real_distribution<f32> dist(lower_bound, upper_bound);
+
+    out.resize(static_cast<usize>(rows) * cols);
+
+    for (usize i = 0; i < out.size(); ++i){
+        out[i] =  dist(gen);
+    }
+
+
+    return out;
+}
+
+auto random_mat_binary_f32_1d_full_range_dist_cpu_native_standalone(
+    u32 rows, u32 cols, u32 seed
+) -> std::expected<std::vector<f32>, device_error> {
+    if (rows == 0 || cols == 0){
+        return std::unexpected{ device_error::launch_failed };
+    }
+
+    std::vector<f32> out;
+
+    f32 lower_bound = -1e6f;
+    f32 upper_bound = 1e6f;
+
+    // Create random number generator
+    std::random_device rd;  // Seed source (hardware)
+    std::mt19937 gen(rd()); // Mersenne Twister engine
+    std::uniform_real_distribution<f32> dist(lower_bound, upper_bound);
+
+    out.resize(static_cast<usize>(rows) * cols);
+
+    for (usize i = 0; i < out.size(); ++i){
+        out[i] =  dist(gen);
+    }
+
 
     return out;
 }

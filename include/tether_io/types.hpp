@@ -60,8 +60,7 @@ struct device_driver_impl;
 template<device_driver D>
 struct device_buffer;
 
-enum class precision : u8 { binary_1bit = 1 /* 1-bit weights/acts */ };
-enum class data_domain   : u8 { pm_one, zero_one };  // ±1 or {0,1}
+enum class data_domain   : u8 { full_range, pm_one, zero_one };  // ±1 or {0,1}
 enum class matrix_order   : u8 { row_major, col_major };
 
 // Exection methods

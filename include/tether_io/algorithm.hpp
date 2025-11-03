@@ -188,11 +188,29 @@ template <> struct algorithm<device_driver::cpu_native, execution_method::standa
     }
 
     auto random_mat_binary_f32_1d(
-        u32 rows, u32 cols, u32 seed
+        data_domain data_range,
+        u32 rows, 
+        u32 cols, 
+        u32 seed
     ) -> std::expected<std::vector<f32>, device_error>{
         std::expected<std::vector<f32>, device_error> res;
 
-        res = random_mat_binary_f32_1d_cpu_native_standalone(rows, cols, seed);
+        switch(data_range){
+
+            case data_domain::pm_one: 
+                 res = random_mat_binary_f32_1d_pm_one_dist_cpu_native_standalone(rows, cols, seed);
+                 break;
+            case data_domain::zero_one:
+                res = random_mat_binary_f32_1d_zero_one_dist_cpu_native_standalone(rows, cols, seed);
+                break;
+            case data_domain::full_range:
+                res = random_mat_binary_f32_1d_full_range_dist_cpu_native_standalone(rows, cols, seed);
+                break;
+            default:
+                return std::unexpected{device_error::not_available};
+
+        }
+
 
         if (!res.has_value()) return std::unexpected{ res.error() };
         return res.value();

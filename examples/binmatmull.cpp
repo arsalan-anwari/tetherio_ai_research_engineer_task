@@ -32,8 +32,8 @@ int main() {
     std::vector<f32> B(K_bits * N);
 
     // Fill matrices A and B with random data
-    A = host_kernel_launcher.random_mat_binary_f32_1d(M, K_bits, 123).value();
-    B = host_kernel_launcher.random_mat_binary_f32_1d(K_bits, N, 321).value();
+    A = host_kernel_launcher.random_mat_binary_f32_1d(data_domain::pm_one, M, K_bits, 123).value();
+    B = host_kernel_launcher.random_mat_binary_f32_1d(data_domain::pm_one, K_bits, N, 321).value();
 
     // Pack matrices as u32 words of bits, each bit of each u32 is one float state (±1)
     std::vector<u32> A_bits = host_kernel_launcher.f32_mat_to_packed_u32(matrix_order::row_major, A, M, K_bits).value();
