@@ -88,12 +88,12 @@ int main() {
     }
     const auto device_limits = device_limits_res.value();
 
-    uint32_t local_x = choose_tile(N, 16u, device_limits.max_compute_work_group_size.x);
-    uint32_t local_y = choose_tile(M, 16u, device_limits.max_compute_work_group_size.y);
+    u32 local_x = choose_tile(N, 16u, device_limits.max_compute_work_group_size.x);
+    u32 local_y = choose_tile(M, 16u, device_limits.max_compute_work_group_size.y);
     vec3<u32> local_size{local_x, local_y, 1u};
 
-    uint32_t groups_x = ceil_div(N, local_x);
-    uint32_t groups_y = ceil_div(M, local_y);
+    u32 groups_x = ceil_div(N, local_x);
+    u32 groups_y = ceil_div(M, local_y);
     vec3<u32> grid_size{groups_x, groups_y, 1u};
 
     res = device_kernel_launcher.binmatmul(

@@ -63,6 +63,16 @@ struct device_buffer;
 enum class data_domain   : u8 { full_range, pm_one, zero_one, trinary };
 enum class matrix_order   : u8 { row_major, col_major };
 
+inline std::string to_string(data_domain domain) {
+    switch (domain) {
+        case data_domain::full_range: return "full_range";
+        case data_domain::pm_one:     return "pm_one";
+        case data_domain::zero_one:   return "zero_one";
+        case data_domain::trinary:    return "trinary";
+        default: return "unkown_domain";
+    }
+}
+
 // Exection methods
 enum class alloc_method { base, custom };
 enum class upload_method { sync, async };
@@ -73,6 +83,27 @@ enum class execution_method { standalone, sequenced };
 enum class kernel_type : u8 { vulkan_compute_shader /* future: CUDA, Metal */ };
 enum class kernel_format : u8 { glsl, spirv, hlsl };
 enum class launch_method : u8 { sync, async, interrupt };
+
+// Sanbox
+enum class sandbox_algorithm : u8 { binmatmul, mull, fill };
+
+inline std::string to_string(sandbox_algorithm algo) {
+    switch (algo) {
+        case sandbox_algorithm::binmatmul: return "binmatmul";
+        case sandbox_algorithm::mull: return "mull";
+        case sandbox_algorithm::fill: return "fill";
+        default: return "unkown_algo";
+    }
+}
+
+template<sandbox_algorithm A>
+struct sandbox_results;
+
+template<> struct sandbox_results<sandbox_algorithm::binmatmul>{
+    i32 max_abs_err; 
+    usize mismatches;
+    usize total_size;
+};
 
 struct kernel_config {
     str name;

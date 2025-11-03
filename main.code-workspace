@@ -101,7 +101,13 @@
             "set": "cpp",
             "unordered_set": "cpp",
             "valarray": "cpp",
-            "xtree": "cpp"
+            "xtree": "cpp",
+            "cinttypes": "cpp",
+            "condition_variable": "cpp",
+            "csignal": "cpp",
+            "future": "cpp",
+            "queue": "cpp",
+            "regex": "cpp"
         }
         
     }
