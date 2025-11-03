@@ -1,7 +1,9 @@
-# Tether IO AI Research Harness
+# Tether IO AI Research Assignment
 
 ## Overview
 This repository contains a C++20 research harness for experimenting with low-precision matrix multiplication pipelines. It provides a Vulkan-backed compute context, a CPU reference implementation, and a sandbox runner that validates 1-bit (binary) GEMM results across data domains and matrix shapes. The same building blocks can be promoted into larger inference systems; an example integration with `llama.cpp` is included to show how the Vulkan backend can replace the default GGML matmul path.
+
+**YOU CAN FIND THE 1.58 BIT PROPOSAL IN RES/DOC**
 
 The codebase is organised around:
 - **Config-driven kernels** sourced from `res/kernels`, described in `index.json`, and compiled to SPIR-V via `shaderc`.
