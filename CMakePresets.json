@@ -13,7 +13,9 @@
         "CMAKE_CXX_STANDARD": "23",
         "CMAKE_CXX_EXTENSIONS": "OFF",
         "CMAKE_CXX_STANDARD_REQUIRED": "ON",
-        "RESOURCE_DIR": "${sourceDir}/res"
+        "RESOURCE_DIR": "${sourceDir}/res",
+        "BUILD_TESTING": "ON",
+        "ENABLE_LLAMA_CPP": "OFF"
       }
     },
     {
@@ -23,8 +25,7 @@
       "hidden": true,
       "cacheVariables": {
         "VCPKG_TARGET_TRIPLET": "x64-windows", 
-        "CMAKE_CONFIGURATION_TYPES": "Release",
-        "ENABLE_LLAMA_CPP": "OFF"
+        "CMAKE_CONFIGURATION_TYPES": "Release"
       }
     },
     {
